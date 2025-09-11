@@ -1,5 +1,8 @@
 name: Check & Version File
 
+permissions:
+  contents: write   # <— wichtig für git push
+  
 on:
   schedule:
     - cron: "0 * * * *"   # stündlich
