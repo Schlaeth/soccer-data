@@ -2,7 +2,7 @@ name: Check & Version File
 
 permissions:
   contents: write   # <— wichtig für git push
-  
+
 on:
   schedule:
     - cron: "0 * * * *"   # stündlich
@@ -19,15 +19,15 @@ jobs:
 
       - name: Download file
         run: |
-          mkdir -p data
-          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o data/current.csv
+          mkdir -p fixtues
+          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/current.csv
 
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain)" ]; then
-            git add data/current.csv
+            git add fixtures/current.csv
             git commit -m "Auto-update: $(date -u)"
             git push
           else
