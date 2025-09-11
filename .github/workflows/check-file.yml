@@ -1,0 +1,27 @@
+name: Check & Version File
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # stündlich
+  workflow_dispatch:        # manuell startbar
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download file
+        run: |
+          mkdir -p data
+          curl -fsSL "https://example.com/deine-datei.xlsx" -o data/current.xlsx
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add data/current.xlsx
+            git commit -m "Auto-update: $(date -u)"
+            git push
+          fi
