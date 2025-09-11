@@ -17,7 +17,7 @@ jobs:
       - name: Download file
         run: |
           mkdir -p data
-          curl -fsSL "https://example.com/deine-datei.xlsx" -o data/current.xlsx
+          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o data/current.csv
 
       - name: Commit if changed
         run: |
