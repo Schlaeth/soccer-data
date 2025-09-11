@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Hello World test
+        run: echo "Hello from GitHub Actions ✅"
+
       - name: Download file
         run: |
           mkdir -p data
@@ -24,4 +27,6 @@ jobs:
             git add data/current.xlsx
             git commit -m "Auto-update: $(date -u)"
             git push
+          else
+            echo "No changes ✅"
           fi
