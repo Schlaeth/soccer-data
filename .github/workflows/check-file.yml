@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Hello World test
-        run: echo "Hello from GitHub Actions ✅"
+        with:
+          persist-credentials: true
+          fetch-depth: 0
 
       - name: Download file
         run: |
@@ -24,7 +24,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain)" ]; then
-            git add data/current.xlsx
+            git add data/current.csv
             git commit -m "Auto-update: $(date -u)"
             git push
           else
