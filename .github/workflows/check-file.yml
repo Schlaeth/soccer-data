@@ -19,16 +19,20 @@ jobs:
 
       - name: Download file
         run: |
-          mkdir -p fixtues
-          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/current.csv
+          mkdir -p fixtures
+          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/fixtures.csv
 
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           if [ -n "$(git status --porcelain)" ]; then
-            git add fixtures/current.csv
-            git commit -m "Auto-update: $(date -u)"
+            DATE=$(date -u +'%Y-%m-%d')
+            cp fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv
+
+            git add fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv
+            git commit -m "Auto-update: ${DATE}"
             git push
           else
             echo "No changes ✅"
