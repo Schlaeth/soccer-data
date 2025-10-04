@@ -22,10 +22,20 @@ jobs:
           mkdir -p fixtures
           curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/fixtures.csv
 
-      - name: Download Country File
+      - name: Download Country Files
         run: |
           mkdir -p CountryFiles
-          curl -fSL "https://www.football-data.co.uk/mmz4281/2526/E0.csv" -o CountryFiles/E0.csv
+          urls=(
+            "https://www.football-data.co.uk/mmz4281/2526/E0.csv"
+            "https://www.football-data.co.uk/mmz4281/2526/E1.csv"
+            "https://www.football-data.co.uk/mmz4281/2526/E2.csv"
+            "https://www.football-data.co.uk/mmz4281/2526/E3.csv"
+            "https://www.football-data.co.uk/mmz4281/2526/D1.csv"
+          )
+          for url in "${urls[@]}"; do
+            file=$(basename "$url")
+            curl -fSL "$url" -o "CountryFiles/$file"
+          done
 
       - name: Commit if changed
         run: |
@@ -34,10 +44,17 @@ jobs:
 
           if [ -n "$(git status --porcelain)" ]; then
             DATE=$(date -u +'%Y-%m-%d')
+            
+            # fixtures mit Datum
             cp fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv
-            cp CountryFiles/E0.csv CountryFiles/${DATE}_E0.csv
+            
+            # alle CountryFiles mit Datum versionieren
+            for f in CountryFiles/*.csv; do
+              base=$(basename "$f" .csv)
+              cp "$f" "CountryFiles/${DATE}_${base}.csv"
+            done
 
-            git add fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv CountryFiles/E0.csv CountryFiles/${DATE}_E0.csv
+            git add fixtures/*.csv CountryFiles/*.csv
             git commit -m "Auto-update: ${DATE}"
             git push
           else
