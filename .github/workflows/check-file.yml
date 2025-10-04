@@ -17,10 +17,15 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: Download file
+      - name: Download fixtures.csv
         run: |
           mkdir -p fixtures
           curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/fixtures.csv
+
+      - name: Download Country File
+        run: |
+          mkdir -p CountryFiles
+          curl -fSL "https://www.football-data.co.uk/mmz4281/2526/E0.csv" -o CountryFiles/E0.csv
 
       - name: Commit if changed
         run: |
@@ -30,8 +35,9 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             DATE=$(date -u +'%Y-%m-%d')
             cp fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv
+            cp CountryFiles/E0.csv CountryFiles/${DATE}_E0.csv
 
-            git add fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv
+            git add fixtures/fixtures.csv fixtures/${DATE}_fixtures.csv CountryFiles/E0.csv CountryFiles/${DATE}_E0.csv
             git commit -m "Auto-update: ${DATE}"
             git push
           else
