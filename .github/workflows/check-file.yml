@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 * * * *"   # stündlich
+    - cron: "0 * * * *"   # stündlich (UTC)
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      # Optional: fixtures wie gehabt
+      # Optional: fixtures
       - name: Download fixtures.csv
         shell: bash
         run: |
@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           PAGE_URL="https://www.football-data.co.uk/germanym.php"
 
-          # Versuche "Season YYYY/YYYY" zu finden
+          # "Season YYYY/YYYY" parsen (z. B. "Season 2025/2026")
           season_text="$(curl -fsSL "$PAGE_URL" | grep -Pom1 'Season\s+[0-9]{4}/[0-9]{4}' || true)"
           if [[ -n "$season_text" ]]; then
             start_year="$(grep -oE '[0-9]{4}' <<< "$season_text" | head -n1)"
@@ -61,7 +61,7 @@ jobs:
             url="${base}/${code}/${lg}.csv"
             out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
 
-            # Nur neu holen, wenn Server-Version neuer ist (-z), sonst bleibt Datei wie sie ist
+            # Aktualisieren nur wenn Server neuer ist
             if [[ -f "$out" ]]; then
               curl -fsSL -z "$out" "$url" -o "$out" || echo "Skip/Not found: $url"
             else
@@ -91,4 +91,5 @@ jobs:
           fi
 
           DATE=$(date -u +'%Y-%m-%d')
-          git commit -m "Auto-u
+          git commit -m "Auto-update: ${DATE}"
+          git push
