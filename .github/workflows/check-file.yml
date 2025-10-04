@@ -17,6 +17,7 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
+      # Optional: fixtures wie gehabt
       - name: Download fixtures.csv
         shell: bash
         run: |
@@ -24,18 +25,48 @@ jobs:
           mkdir -p fixtures
           curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/fixtures.csv
 
-      - name: Download Country Files into league folders
+      - name: Determine current season (scrape website)
+        id: season
         shell: bash
         run: |
           set -euo pipefail
-          season="2526"
-          # D2 ist enthalten
+          PAGE_URL="https://www.football-data.co.uk/germanym.php"
+
+          # Versuche "Season YYYY/YYYY" zu finden
+          season_text="$(curl -fsSL "$PAGE_URL" | grep -Pom1 'Season\s+[0-9]{4}/[0-9]{4}' || true)"
+          if [[ -n "$season_text" ]]; then
+            start_year="$(grep -oE '[0-9]{4}' <<< "$season_text" | head -n1)"
+          else
+            # Fallback-Heuristik: Saisonstart ~ Juli
+            y=$(date -u +%Y); m=$(date -u +%m)
+            if ((10#$m >= 7)); then start_year="$y"; else start_year="$((y-1))"; fi
+          fi
+          echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
+
+      - name: Download current season files into league folders
+        shell: bash
+        run: |
+          set -euo pipefail
+
           leagues=(E0 E1 E2 E3 D1 D2 F1 F2 I1 I2 P1 SP1 SP2 T1)
 
+          y=${{ steps.season.outputs.start_year }}
+          y2=$((y+1))
+          code=$(printf "%02d%02d" $((y % 100)) $((y2 % 100)))  # z. B. 2025/2026 -> 2526
+          base="https://www.football-data.co.uk/mmz4281"
+
+          mkdir -p CountryFiles
           for lg in "${leagues[@]}"; do
             mkdir -p "CountryFiles/${lg}"
-            url="https://www.football-data.co.uk/mmz4281/${season}/${lg}.csv"
-            curl -fSL "$url" -o "CountryFiles/${lg}/${lg}.csv"
+            url="${base}/${code}/${lg}.csv"
+            out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
+
+            # Nur neu holen, wenn Server-Version neuer ist (-z), sonst bleibt Datei wie sie ist
+            if [[ -f "$out" ]]; then
+              curl -fsSL -z "$out" "$url" -o "$out" || echo "Skip/Not found: $url"
+            else
+              curl -fsSL "$url" -o "$out" || echo "Skip/Not found: $url"
+            fi
           done
 
       - name: Show what was downloaded (debug)
@@ -43,42 +74,21 @@ jobs:
         run: |
           echo "=== fixtures ==="
           ls -l fixtures || true
-          echo "=== CountryFiles (tree) ==="
+          echo "=== CountryFiles (current season) ==="
           find CountryFiles -maxdepth 2 -type f -name '*.csv' -print | sort || true
 
-      - name: Commit if changed (stage first, then decide)
+      - name: Commit if changed
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 1) Erst alles hinzufügen (auch neue Ordner/Dateien)
           git add -A fixtures CountryFiles
-
-          # 2) Prüfen, ob STAGED Änderungen existieren
           if git diff --cached --quiet; then
             echo "No changes ✅"
             exit 0
           fi
 
-          # 3) Datierte Kopien nur für die geänderten (staged) Dateien erzeugen
           DATE=$(date -u +'%Y-%m-%d')
-          mapfile -t staged_changed < <(git diff --name-only --cached | grep -E '^(fixtures/fixtures\.csv|CountryFiles/.+/.+\.csv)$' || true)
-
-          for f in "${staged_changed[@]}"; do
-            if [[ "$f" == "fixtures/fixtures.csv" ]]; then
-              cp "fixtures/fixtures.csv" "fixtures/${DATE}_fixtures.csv"
-            else
-              dir=$(dirname "$f")          # z. B. CountryFiles/E0
-              base=$(basename "$f" .csv)   # z. B. E0
-              cp "$f" "${dir}/${DATE}_${base}.csv"
-            fi
-          done
-
-          # 4) Datierte Kopien auch hinzufügen
-          git add -A fixtures CountryFiles
-
-          # 5) Commit & Push
-          git commit -m "Auto-update: ${DATE}"
-          git push
+          git commit -m "Auto-u
