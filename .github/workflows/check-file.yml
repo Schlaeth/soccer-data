@@ -1,12 +1,12 @@
 name: Check & Version File
 
 permissions:
-  contents: write   # <— wichtig für git push
+  contents: write
 
 on:
   schedule:
     - cron: "0 * * * *"   # stündlich
-  workflow_dispatch:        # manuell startbar
+  workflow_dispatch:
 
 jobs:
   fetch:
@@ -29,48 +29,56 @@ jobs:
         run: |
           set -euo pipefail
           season="2526"
-          # Alle gewünschten Ligen – einfach hier ergänzen/entfernen
+          # D2 ist enthalten
           leagues=(E0 E1 E2 E3 D1 D2 F1 F2 I1 I2 P1 SP1 SP2 T1)
 
-          mkdir -p CountryFiles
           for lg in "${leagues[@]}"; do
             mkdir -p "CountryFiles/${lg}"
             url="https://www.football-data.co.uk/mmz4281/${season}/${lg}.csv"
-            # lädt z. B. nach CountryFiles/E0/E0.csv
             curl -fSL "$url" -o "CountryFiles/${lg}/${lg}.csv"
           done
 
-      - name: Commit if changed (only changed files get dated copies)
+      - name: Show what was downloaded (debug)
+        shell: bash
+        run: |
+          echo "=== fixtures ==="
+          ls -l fixtures || true
+          echo "=== CountryFiles (tree) ==="
+          find CountryFiles -maxdepth 2 -type f -name '*.csv' -print | sort || true
+
+      - name: Commit if changed (stage first, then decide)
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Welche Dateien haben sich wirklich geändert oder sind neu?
-          # Bezieht nur fixtures und CountryFiles ein (PlayoffCountries wird ignoriert)
-          mapfile -t changed < <(git status --porcelain \
-            | awk '/^( M|A |??) / {print $2}' \
-            | grep -E '^(fixtures/fixtures\.csv|CountryFiles/.+\.csv)$' || true)
+          # 1) Erst alles hinzufügen (auch neue Ordner/Dateien)
+          git add -A fixtures CountryFiles
 
-          if [ "${#changed[@]}" -gt 0 ]; then
-            DATE=$(date -u +'%Y-%m-%d')
-
-            # Für jede geänderte Datei eine datierte Kopie erzeugen
-            for f in "${changed[@]}"; do
-              if [[ "$f" == "fixtures/fixtures.csv" ]]; then
-                cp --parents "$f" "fixtures/${DATE}_fixtures.csv"
-              else
-                dir=$(dirname "$f")         # z. B. CountryFiles/E0
-                base=$(basename "$f" .csv)  # z. B. E0
-                cp "$f" "${dir}/${DATE}_${base}.csv"
-              fi
-            done
-
-            # Alles adden (nur fixtures & CountryFiles)
-            git add fixtures/*.csv CountryFiles/**/**/*.csv CountryFiles/**/*.csv CountryFiles/*.csv 2>/dev/null || true
-            git commit -m "Auto-update: ${DATE}"
-            git push
-          else
+          # 2) Prüfen, ob STAGED Änderungen existieren
+          if git diff --cached --quiet; then
             echo "No changes ✅"
+            exit 0
           fi
+
+          # 3) Datierte Kopien nur für die geänderten (staged) Dateien erzeugen
+          DATE=$(date -u +'%Y-%m-%d')
+          mapfile -t staged_changed < <(git diff --name-only --cached | grep -E '^(fixtures/fixtures\.csv|CountryFiles/.+/.+\.csv)$' || true)
+
+          for f in "${staged_changed[@]}"; do
+            if [[ "$f" == "fixtures/fixtures.csv" ]]; then
+              cp "fixtures/fixtures.csv" "fixtures/${DATE}_fixtures.csv"
+            else
+              dir=$(dirname "$f")          # z. B. CountryFiles/E0
+              base=$(basename "$f" .csv)   # z. B. E0
+              cp "$f" "${dir}/${DATE}_${base}.csv"
+            fi
+          done
+
+          # 4) Datierte Kopien auch hinzufügen
+          git add -A fixtures CountryFiles
+
+          # 5) Commit & Push
+          git commit -m "Auto-update: ${DATE}"
+          git push
