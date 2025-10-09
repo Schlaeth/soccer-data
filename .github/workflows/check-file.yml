@@ -56,7 +56,7 @@ jobs:
           fi
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
           
-      - name: Download current season files into league folders (ETag + dated)
+           - name: Download current season files into league folders (direct .csv + dated)
         shell: bash
         run: |
           set -euo pipefail
@@ -75,36 +75,27 @@ jobs:
             mkdir -p "CountryFiles/${lg}"
             url="${base}/${code}/${lg}.csv"
             out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
-            etag_file="${out}.etag"
-            tmp="${out}.tmp"
 
-            # Download mit ETag-Vergleich (verhindert mtime-Probleme nach checkout)
-            if curl -fsSL \
-                 --retry 3 --retry-delay 2 \
-                 --etag-compare "${etag_file}" \
-                 --etag-save "${etag_file}" \
-                 --remote-time \
-                 -o "${tmp}" \
-                 "${url}"; then
+            echo "Checking ${url} ..."
 
-              if [[ -s "${tmp}" ]]; then
-                # Es gab neue Inhalte (200 OK) -> ersetzen & Snapshot schreiben
-                mv "${tmp}" "${out}"
+            # Lade Datei nur, wenn sich Inhalt auf dem Server geändert hat
+            status_code=$(curl -fsSLo "${out}" \
+              -w "%{http_code}" \
+              -z "${out}" \
+              --retry 3 --retry-delay 2 \
+              --remote-time \
+              "${url}" || echo "000")
 
-                dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
-                cp -f "${out}" "${dated}"
-                echo "Updated: ${out} and snapshot ${dated}"
-              else
-                # 304 Not Modified -> kein Update
-                rm -f "${tmp}"
-                echo "Not modified: ${url}"
-              fi
+            if [[ "${status_code}" == "200" ]]; then
+              dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
+              cp -f "${out}" "${dated}"
+              echo "✅ Updated ${out} and snapshot ${dated}"
+            elif [[ "${status_code}" == "304" ]]; then
+              echo "⏩ Not modified: ${url}"
             else
-              echo "Skip/Not found: ${url}"
-              rm -f "${tmp}" || true
+              echo "⚠️ Skip/Not found: ${url} (status ${status_code})"
             fi
           done
-
 
       - name: Show what was downloaded (debug)
         shell: bash
