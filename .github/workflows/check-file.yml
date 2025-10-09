@@ -17,13 +17,26 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      # Optional: fixtures
-      - name: Download fixtures.csv
+      - name: Download fixtures.csv (dated + latest alias)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p fixtures
-          curl -fSL "https://www.football-data.co.uk/fixtures.csv" -o fixtures/fixtures.csv
+
+          URL="https://www.football-data.co.uk/fixtures.csv"
+          DATE="$(date -u +%Y-%m-%d)"
+          OUT_DATED="fixtures/${DATE}_fixtures.csv"
+          OUT_LATEST="fixtures/fixtures.csv"
+
+          # Nur laden, wenn Server neuer ist (spart Commits)
+          if [[ -f "$OUT_DATED" ]]; then
+            curl -fSL -z "$OUT_DATED" "$URL" -o "$OUT_DATED" || echo "No update on server"
+          else
+            curl -fSL "$URL" -o "$OUT_DATED"
+          fi
+
+          # "Latest" aktualisieren (Symlink oder Kopie – Kopie ist GitHub-freundlicher)
+          cp -f "$OUT_DATED" "$OUT_LATEST"
 
       - name: Determine current season (scrape website)
         id: season
