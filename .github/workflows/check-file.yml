@@ -45,15 +45,20 @@ jobs:
           set -euo pipefail
           PAGE_URL="https://www.football-data.co.uk/germanym.php"
 
-          # "Season YYYY/YYYY" parsen (z. B. "Season 2025/2026")
-          season_text="$(curl -fsSL "$PAGE_URL" | grep -Pom1 'Season\s+[0-9]{4}/[0-9]{4}' || true)"
+          # Seite einmal laden (kein Pipe -> kein SIGPIPE)
+          page="$(curl -fsSL --retry 3 --retry-delay 2 "$PAGE_URL")"
+
+          # "Season YYYY/YYYY" extrahieren (erstes Vorkommen)
+          season_text="$(grep -oP 'Season\s+[0-9]{4}/[0-9]{4}' <<< "$page" | head -n1 || true)"
+
           if [[ -n "$season_text" ]]; then
             start_year="$(grep -oE '[0-9]{4}' <<< "$season_text" | head -n1)"
           else
-            # Fallback-Heuristik: Saisonstart ~ Juli
+            # Fallback-Heuristik: Saisonstart ~ Juli (UTC)
             y=$(date -u +%Y); m=$(date -u +%m)
             if ((10#$m >= 7)); then start_year="$y"; else start_year="$((y-1))"; fi
           fi
+
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
           
       - name: Download current season files into league folders (direct .csv + dated)
