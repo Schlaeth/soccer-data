@@ -56,7 +56,7 @@ jobs:
           fi
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
           
-           - name: Download current season files into league folders (direct .csv + dated)
+      - name: Download current season files into league folders (direct .csv + dated)
         shell: bash
         run: |
           set -euo pipefail
