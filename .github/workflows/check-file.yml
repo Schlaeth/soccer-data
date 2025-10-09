@@ -55,8 +55,8 @@ jobs:
             if ((10#$m >= 7)); then start_year="$y"; else start_year="$((y-1))"; fi
           fi
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
-
-      - name: Download current season files into league folders
+          
+      - name: Download current season files into league folders (ETag + dated)
         shell: bash
         run: |
           set -euo pipefail
@@ -69,18 +69,42 @@ jobs:
           base="https://www.football-data.co.uk/mmz4281"
 
           mkdir -p CountryFiles
+          TODAY="$(date -u +%Y-%m-%d)"
+
           for lg in "${leagues[@]}"; do
             mkdir -p "CountryFiles/${lg}"
             url="${base}/${code}/${lg}.csv"
             out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
+            etag_file="${out}.etag"
+            tmp="${out}.tmp"
 
-            # Aktualisieren nur wenn Server neuer ist
-            if [[ -f "$out" ]]; then
-              curl -fsSL -z "$out" "$url" -o "$out" || echo "Skip/Not found: $url"
+            # Download mit ETag-Vergleich (verhindert mtime-Probleme nach checkout)
+            if curl -fsSL \
+                 --retry 3 --retry-delay 2 \
+                 --etag-compare "${etag_file}" \
+                 --etag-save "${etag_file}" \
+                 --remote-time \
+                 -o "${tmp}" \
+                 "${url}"; then
+
+              if [[ -s "${tmp}" ]]; then
+                # Es gab neue Inhalte (200 OK) -> ersetzen & Snapshot schreiben
+                mv "${tmp}" "${out}"
+
+                dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
+                cp -f "${out}" "${dated}"
+                echo "Updated: ${out} and snapshot ${dated}"
+              else
+                # 304 Not Modified -> kein Update
+                rm -f "${tmp}"
+                echo "Not modified: ${url}"
+              fi
             else
-              curl -fsSL "$url" -o "$out" || echo "Skip/Not found: $url"
+              echo "Skip/Not found: ${url}"
+              rm -f "${tmp}" || true
             fi
           done
+
 
       - name: Show what was downloaded (debug)
         shell: bash
