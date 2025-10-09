@@ -61,7 +61,7 @@ jobs:
 
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
           
-      - name: Download current season files into league folders (direct .csv + dated)
+         - name: Download current season files into league folders (content-compare + dated)
         shell: bash
         run: |
           set -euo pipefail
@@ -81,25 +81,29 @@ jobs:
             url="${base}/${code}/${lg}.csv"
             out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
 
-            echo "Checking ${url} ..."
-
-            # Lade Datei nur, wenn sich Inhalt auf dem Server geändert hat
-            status_code=$(curl -fsSLo "${out}" \
-              -w "%{http_code}" \
-              -z "${out}" \
-              --retry 3 --retry-delay 2 \
-              --remote-time \
-              "${url}" || echo "000")
-
-            if [[ "${status_code}" == "200" ]]; then
-              dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
-              cp -f "${out}" "${dated}"
-              echo "✅ Updated ${out} and snapshot ${dated}"
-            elif [[ "${status_code}" == "304" ]]; then
-              echo "⏩ Not modified: ${url}"
-            else
-              echo "⚠️ Skip/Not found: ${url} (status ${status_code})"
+            echo "Fetching ${url} ..."
+            tmp="$(mktemp)"
+            # Voll laden (kleine Dateien), Redirects folgen, bei HTTP>=400 failen
+            if ! curl -fSL --retry 3 --retry-delay 2 -o "${tmp}" "${url}"; then
+              echo "⚠️  Skip/Not found: ${url}"
+              rm -f "${tmp}"
+              continue
             fi
+
+            if [[ -s "${out}" ]]; then
+              if cmp -s "${tmp}" "${out}"; then
+                # Identisch -> kein Update
+                echo "⏩ Not modified (by content): ${out}"
+                rm -f "${tmp}"
+                continue
+              fi
+            fi
+
+            # Inhalt hat sich geändert ODER out existierte noch nicht
+            mv -f "${tmp}" "${out}"
+            dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
+            cp -f "${out}" "${dated}"
+            echo "✅ Updated ${out} and snapshot ${dated}"
           done
 
       - name: Show what was downloaded (debug)
