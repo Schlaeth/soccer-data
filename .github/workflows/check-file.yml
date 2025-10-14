@@ -17,26 +17,32 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
-      - name: Download fixtures.csv (dated + latest alias)
+      - name: Download fixtures.csv (content-compare; snapshot nur bei Änderung)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p fixtures
 
           URL="https://www.football-data.co.uk/fixtures.csv"
-          DATE="$(date -u +%Y-%m-%d)"
-          OUT_DATED="fixtures/${DATE}_fixtures.csv"
           OUT_LATEST="fixtures/fixtures.csv"
+          TMP="$(mktemp)"
 
-          # Nur laden, wenn Server neuer ist (spart Commits)
-          if [[ -f "$OUT_DATED" ]]; then
-            curl -fSL -z "$OUT_DATED" "$URL" -o "$OUT_DATED" || echo "No update on server"
+          # Immer vollständig laden (Datei ist klein) und per Inhalt vergleichen
+          if curl -fSL --retry 3 --retry-delay 2 -o "$TMP" "$URL"; then
+            if [[ -f "$OUT_LATEST" ]] && cmp -s "$TMP" "$OUT_LATEST"; then
+              echo "⏩ fixtures.csv unverändert – kein Snapshot, kein Commit"
+              rm -f "$TMP"
+            else
+              echo "✅ fixtures.csv geändert – aktualisiere 'latest' und schreibe Snapshot"
+              mv -f "$TMP" "$OUT_LATEST"
+              DATE="$(date -u +%Y-%m-%d)"
+              cp -f "$OUT_LATEST" "fixtures/${DATE}_fixtures.csv"
+            fi
           else
-            curl -fSL "$URL" -o "$OUT_DATED"
+            echo "⚠️  Download von fixtures.csv fehlgeschlagen"
+            rm -f "$TMP"
+            exit 1
           fi
-
-          # "Latest" aktualisieren (Symlink oder Kopie – Kopie ist GitHub-freundlicher)
-          cp -f "$OUT_DATED" "$OUT_LATEST"
 
       - name: Determine current season (scrape website)
         id: season
@@ -44,21 +50,14 @@ jobs:
         run: |
           set -euo pipefail
           PAGE_URL="https://www.football-data.co.uk/germanym.php"
-
-          # Seite einmal laden (kein Pipe -> kein SIGPIPE)
           page="$(curl -fsSL --retry 3 --retry-delay 2 "$PAGE_URL")"
-
-          # "Season YYYY/YYYY" extrahieren (erstes Vorkommen)
           season_text="$(grep -oP 'Season\s+[0-9]{4}/[0-9]{4}' <<< "$page" | head -n1 || true)"
-
           if [[ -n "$season_text" ]]; then
             start_year="$(grep -oE '[0-9]{4}' <<< "$season_text" | head -n1)"
           else
-            # Fallback-Heuristik: Saisonstart ~ Juli (UTC)
             y=$(date -u +%Y); m=$(date -u +%m)
             if ((10#$m >= 7)); then start_year="$y"; else start_year="$((y-1))"; fi
           fi
-
           echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
           
       - name: Download current season files into league folders (content-compare + dated)
@@ -83,23 +82,18 @@ jobs:
 
             echo "Fetching ${url} ..."
             tmp="$(mktemp)"
-            # Voll laden (kleine Dateien), Redirects folgen, bei HTTP>=400 failen
             if ! curl -fSL --retry 3 --retry-delay 2 -o "${tmp}" "${url}"; then
               echo "⚠️  Skip/Not found: ${url}"
               rm -f "${tmp}"
               continue
             fi
 
-            if [[ -s "${out}" ]]; then
-              if cmp -s "${tmp}" "${out}"; then
-                # Identisch -> kein Update
-                echo "⏩ Not modified (by content): ${out}"
-                rm -f "${tmp}"
-                continue
-              fi
+            if [[ -s "${out}" ]] && cmp -s "${tmp}" "${out}"; then
+              echo "⏩ Not modified (by content): ${out}"
+              rm -f "${tmp}"
+              continue
             fi
 
-            # Inhalt hat sich geändert ODER out existierte noch nicht
             mv -f "${tmp}" "${out}"
             dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
             cp -f "${out}" "${dated}"
