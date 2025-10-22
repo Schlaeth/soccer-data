@@ -1,0 +1,126 @@
+name: Check & Version File
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # stündlich (UTC)
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Download fixtures.csv (content-compare; snapshot nur bei Änderung)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p fixtures
+
+          URL="https://www.football-data.co.uk/fixtures.csv"
+          OUT_LATEST="fixtures/fixtures.csv"
+          TMP="$(mktemp)"
+
+          # Immer vollständig laden (Datei ist klein) und per Inhalt vergleichen
+          if curl -fSL --retry 3 --retry-delay 2 -o "$TMP" "$URL"; then
+            if [[ -f "$OUT_LATEST" ]] && cmp -s "$TMP" "$OUT_LATEST"; then
+              echo "⏩ fixtures.csv unverändert – kein Snapshot, kein Commit"
+              rm -f "$TMP"
+            else
+              echo "✅ fixtures.csv geändert – aktualisiere 'latest' und schreibe Snapshot"
+              mv -f "$TMP" "$OUT_LATEST"
+              DATE="$(date -u +%Y-%m-%d)"
+              cp -f "$OUT_LATEST" "fixtures/${DATE}_fixtures.csv"
+            fi
+          else
+            echo "⚠️  Download von fixtures.csv fehlgeschlagen"
+            rm -f "$TMP"
+            exit 1
+          fi
+
+      - name: Determine current season (scrape website)
+        id: season
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAGE_URL="https://www.football-data.co.uk/germanym.php"
+          page="$(curl -fsSL --retry 3 --retry-delay 2 "$PAGE_URL")"
+          season_text="$(grep -oP 'Season\s+[0-9]{4}/[0-9]{4}' <<< "$page" | head -n1 || true)"
+          if [[ -n "$season_text" ]]; then
+            start_year="$(grep -oE '[0-9]{4}' <<< "$season_text" | head -n1)"
+          else
+            y=$(date -u +%Y); m=$(date -u +%m)
+            if ((10#$m >= 7)); then start_year="$y"; else start_year="$((y-1))"; fi
+          fi
+          echo "start_year=$start_year" >> "$GITHUB_OUTPUT"
+          
+      - name: Download current season files into league folders (content-compare + dated)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          leagues=(E0 E1 E2 E3 D1 D2 F1 F2 I1 I2 P1 SP1 SP2 T1)
+
+          y=${{ steps.season.outputs.start_year }}
+          y2=$((y+1))
+          code=$(printf "%02d%02d" $((y % 100)) $((y2 % 100)))  # z. B. 2025/2026 -> 2526
+          base="https://www.football-data.co.uk/mmz4281"
+
+          mkdir -p CountryFiles
+          TODAY="$(date -u +%Y-%m-%d)"
+
+          for lg in "${leagues[@]}"; do
+            mkdir -p "CountryFiles/${lg}"
+            url="${base}/${code}/${lg}.csv"
+            out="CountryFiles/${lg}/${lg}+${y}+${y2}.csv"
+
+            echo "Fetching ${url} ..."
+            tmp="$(mktemp)"
+            if ! curl -fSL --retry 3 --retry-delay 2 -o "${tmp}" "${url}"; then
+              echo "⚠️  Skip/Not found: ${url}"
+              rm -f "${tmp}"
+              continue
+            fi
+
+            if [[ -s "${out}" ]] && cmp -s "${tmp}" "${out}"; then
+              echo "⏩ Not modified (by content): ${out}"
+              rm -f "${tmp}"
+              continue
+            fi
+
+            mv -f "${tmp}" "${out}"
+            dated="CountryFiles/${lg}/${TODAY}_${lg}.csv"
+            cp -f "${out}" "${dated}"
+            echo "✅ Updated ${out} and snapshot ${dated}"
+          done
+
+      - name: Show what was downloaded (debug)
+        shell: bash
+        run: |
+          echo "=== fixtures ==="
+          ls -l fixtures || true
+          echo "=== CountryFiles (current season) ==="
+          find CountryFiles -maxdepth 2 -type f -name '*.csv' -print | sort || true
+
+      - name: Commit if changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -A fixtures CountryFiles
+          if git diff --cached --quiet; then
+            echo "No changes ✅"
+            exit 0
+          fi
+
+          DATE=$(date -u +'%Y-%m-%d')
+          git commit -m "Auto-update: ${DATE}"
+          git push
