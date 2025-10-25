@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          leagues=(E0 E1 E2 E3 D1 D2 F1 F2 I1 I2 P1 SP1 SP2 T1)
+          leagues=(E0 E1 E2 E3 D1 D2 F1 F2 I1 I2 P1 SP1 SP2 T1 N1)
 
           y=${{ steps.season.outputs.start_year }}
           y2=$((y+1))
